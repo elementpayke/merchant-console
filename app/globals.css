@@ -1,0 +1,17 @@
+/* App-level chrome outside the ported design (loading splash). */
+.ep-splash {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--bg, #f0effc);
+  color: var(--muted, #5b5a72);
+  font-family: 'Manrope', system-ui, sans-serif;
+  font-size: 13px;
+}
+.ep-splash img {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  display: block;
+  margin: 0 auto 12px;
+}

@@ -1,0 +1,5 @@
+.hv0:hover { background: var(--surface) !important; }
+.hv1:hover { background: var(--surface) !important; color: var(--ink) !important; }
+.hv2:hover { background: var(--surface-soft) !important; }
+.hv3:hover { border-color: var(--indigo) !important; background: var(--indigo-tint) !important; }
+.hv4:hover { border-color: var(--indigo) !important; }
