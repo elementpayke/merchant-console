@@ -5,10 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "check": "node scripts/check-qr.mjs"
   },
   "dependencies": {
     "next": "^16.4.5",
+    "qrcode-generator": "^2.0.4",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
