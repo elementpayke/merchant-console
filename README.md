@@ -83,18 +83,27 @@ but they are unused.
 
 ## Deviation from the design source
 
-The design's `COUNTRIES` constant ships 193 entries and **omits six of the nine
-home markets** — Kenya, Tanzania, Uganda, Rwanda, Ghana and Nigeria. Only South
-Africa, Malawi and Botswana are present. In onboarding that meant:
+The design export this build was ported from (`COUNTRIES`, 193 entries) **omits
+six of the nine home markets** — Kenya, Tanzania, Uganda, Rwanda, Ghana and
+Nigeria. Only South Africa, Malawi and Botswana are present. In onboarding that
+meant:
 
 - Searching "Kenya" in *Country of registration* returned "No country matches
   that search."
+- The *selected* country name rendered blank, because it is looked up in
+  `COUNTRIES` — so the field showed its placeholder even with KES active.
 - The picker's "Local rails" group listed 3 markets instead of 9.
 
 `scripts/port-logic.mjs` re-inserts the six in alphabetical position (193 → 199
-entries). The patch is keyed on the country code and is self-healing: once the
-design is fixed upstream it adds nothing and reports `none missing (design fixed
+entries). The patch is keyed on country code and is **idempotent**: given a list
+that already has them it adds nothing and reports `none missing (design fixed
 upstream)`.
+
+**Fixed upstream.** The design was corrected on 2026-11-10 and republished as
+**version 23** (200 entries — the six above plus Ukraine, which was also
+absent). The patch is kept as a safety net so older exports still build
+correctly; it will go quiet on the next re-export. Re-exporting also picks up
+Ukraine, which this build does not yet have.
 
 This is the **only** intentional divergence from the design's logic. Everything
 else in `lib/logic.js` is verbatim apart from asset URLs.
