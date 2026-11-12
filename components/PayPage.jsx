@@ -25,6 +25,21 @@ const money = (amount, currency) => {
 
 const METHOD_LABEL = { mpesa: "M-Pesa", card: "Card", stable: "Stablecoin" };
 
+/* Accept the ways a Kenyan customer actually types their number and normalise to
+   the 254XXXXXXXXX the API wants. The backend already takes +254…, 0 7/1…, and
+   254… (app/services/collect_profiles/stk_phone.py); this mirrors that and also
+   handles a bare 9-digit entry, which is the most common way people type it.
+   Returns null when it is not a Kenyan mobile number. */
+export function normalizeKePhone(raw) {
+  const s = String(raw == null ? "" : raw).replace(/[\s()\-.]/g, "");
+  const digits = s.replace(/^\+/, "");
+  if (!/^\d+$/.test(digits)) return null;
+  if (/^254[17]\d{8}$/.test(digits)) return digits;          // 254712345678
+  if (/^0[17]\d{8}$/.test(digits)) return "254" + digits.slice(1); // 0712345678
+  if (/^[17]\d{8}$/.test(digits)) return "254" + digits;      // 712345678 / 110919165
+  return null;
+}
+
 export default function PayPage({ business, link }) {
   const [state, setState] = React.useState({ phase: "loading" });
   const [phone, setPhone] = React.useState("");
@@ -57,9 +72,9 @@ export default function PayPage({ business, link }) {
 
   const pay = async () => {
     setPayError("");
-    const trimmed = phone.replace(/\s+/g, "");
-    if (!/^254\d{9}$/.test(trimmed)) {
-      setPayError("Enter your M-Pesa number as 254XXXXXXXXX.");
+    const trimmed = normalizeKePhone(phone);
+    if (!trimmed) {
+      setPayError("That does not look like a Kenyan M-Pesa number. Try 0712 345 678.");
       return;
     }
     setPaying(true);
@@ -137,7 +152,7 @@ export default function PayPage({ business, link }) {
         <span style={{ fontSize: 12, fontWeight: 700, color: "var(--indigo-text, #4339ca)" }}>{d.business_name}</span>
         <h1 style={{ fontSize: 20, margin: 0 }}>Check your phone</h1>
         <p style={{ margin: 0, fontSize: 13.5, color: "var(--muted, #5e656d)", lineHeight: 1.55 }}>
-          We sent an M-Pesa prompt to {phone}. Approve it to pay {money(d.amount, d.currency)}.
+          We sent an M-Pesa prompt to {normalizeKePhone(phone) || phone}. Approve it to pay {money(d.amount, d.currency)}.
         </p>
         {done.order_id ? (
           <code style={{ fontSize: 12, color: "var(--muted, #5e656d)", wordBreak: "break-all" }}>
@@ -189,12 +204,18 @@ export default function PayPage({ business, link }) {
         <>
           <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, fontWeight: 600, color: "var(--muted, #5e656d)" }}>
             Your M-Pesa number
+            {normalizeKePhone(phone) && normalizeKePhone(phone) !== phone.replace(/[\s()\-.]/g, "").replace(/^\+/, "") ? (
+              <span style={{ fontWeight: 500, color: "var(--faint, #808891)" }}>
+                {" "}· we will charge {normalizeKePhone(phone)}
+              </span>
+            ) : null}
             <input
               type="tel"
               inputMode="numeric"
               placeholder="254712345678"
               value={phone}
               onChange={(e) => { setPhone(e.target.value); setPayError(""); }}
+              autoComplete="tel"
               style={{
                 padding: "11px 12px",
                 border: "1px solid var(--border-strong, #c8ccd1)",
