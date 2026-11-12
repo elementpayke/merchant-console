@@ -189,7 +189,18 @@ export default function PayPage({ business, link }) {
     );
 
   const d = state.data || {};
-  const accepts = Array.isArray(d.accepts) ? d.accepts : [];
+  /* `accepts` ignores the link's currency, so it offers methods the API then
+     refuses: USDC on a KES link gets "requires a payment link denominated in
+     USDC", and M-Pesa on a USDC link gets "STK currently supports KES only".
+     Filter to what can actually complete rather than let a payer pick a dead
+     option. */
+  const cur = String(d.currency || "").toUpperCase();
+  const usableFor = (id) => {
+    if (id === "mpesa") return cur === "KES";
+    if (id === "usdc_evm" || id === "stable_usdc") return cur === "USDC";
+    return true;
+  };
+  const accepts = (Array.isArray(d.accepts) ? d.accepts : []).filter(usableFor);
   const inactive = String(d.status || "active") !== "active";
   const expired = d.expires_at ? new Date(d.expires_at) < new Date() : false;
   const blocked = inactive || expired || accepts.length === 0;
