@@ -101,6 +101,21 @@ just a name, country and a line saying what the account is for.
 **Submission is still blocked** — see the KYB row in the table below. The wizard collects everything
 and saves locally; it cannot POST because the endpoints are API-key-only.
 
+### Public checkout page (new)
+
+Payment links had nowhere to point. `public_path` (`/{business}/l/{link_slug}`) is meant to hang off a
+customer-facing host, but the aggregator serves only JSON (no `HTMLResponse` anywhere) and the console
+was a single page at `/`. The design's `pay.elementpay.net` did not exist. So a shared link opened the
+raw API payload.
+
+`app/[business]/l/[link]/page.tsx` + `components/PayPage.jsx` add that page, mirroring `public_path`
+so a link shares as `<console host>/acme-test/l/pay-aaa2a2`. It resolves the link through the
+unauthenticated public API and renders amount, merchant and an M-Pesa form. Every failure is shown as
+the backend reports it — inactive link, expired link, no usable method, or the merchant-side
+"no payout wallet configured" — rather than a generic error.
+
+Share URLs in the links table, the detail pane and the share modal now point here instead of at the API.
+
 ### What is still not wired
 
 | Area | Why |
