@@ -87,6 +87,13 @@ mis-click does not discard work). Verified in the browser for all three types: f
 lists, sequential numbering, document lists, and that an individual can now complete section 1 with
 just a name, country and corridor.
 
+**KYC and KYB are now distinct.** They are two different processes and the wizard had blurred them:
+
+- **Identity check (KYC)** is an automated SmileID liveness/ID check on a secure link. It is wired to the real `POST /kyc/initiate` + `GET /kyc/status` — these are **JWT-authed**, unlike the KYB endpoints, so the console can call them directly. "Start on this device" opens the link; SMS/email hand it off. Locally it reports the backend's real error (SmileID `partner_id` is a placeholder) rather than faking a pass.
+- **Business verification (KYB)** is document upload reviewed by hand. Stage 3 and the review step now say so explicitly.
+
+**Director documents are per person.** The checklist had a single generic "Directors' IDs" row, so a company declaring three directors could satisfy it with one upload. Each declared person now gets their own named pair — `Joe Thuku — ID document`, `Joe Thuku — proof of address` — generated from the Ownership stage. Adding, renaming or removing a director rebuilds the list, and `kybMergeDocs` preserves anything already uploaded (verified: an upload stayed "In review" through a rebuild triggered by renaming a different director). With no directors declared yet, a single row points back to Ownership.
+
 **Submission is still blocked** — see the KYB row in the table below. The wizard collects everything
 and saves locally; it cannot POST because the endpoints are API-key-only.
 
