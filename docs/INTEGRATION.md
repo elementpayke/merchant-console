@@ -82,10 +82,14 @@ Now type-aware across the whole flow:
 | Documents | Certificate of incorporation, CR12, Tax PIN, proof of address, Directors' IDs, bank reference, licences | Business name certificate, Tax PIN, proof of address, Owner's ID, bank statement, licences | **ID/passport, proof of address, source of funds** |
 | Progress | "n of 4 sections" | "n of 4 sections" | **"n of 3 sections"** |
 
+The fixed eight-country **Expected corridors** chip list was removed: the catalog covers 35 markets,
+so the picker under-sold coverage and forced a guess. The free-text purpose field carries it, and
+stage 1's completeness rule now requires that text instead of a corridor selection.
+
 Changing the account type swaps the document checklist, unless uploads have already started (so a
 mis-click does not discard work). Verified in the browser for all three types: field sets, stage
 lists, sequential numbering, document lists, and that an individual can now complete section 1 with
-just a name, country and corridor.
+just a name, country and a line saying what the account is for.
 
 **KYC and KYB are now distinct.** They are two different processes and the wizard had blurred them:
 
