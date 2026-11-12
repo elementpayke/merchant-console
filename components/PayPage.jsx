@@ -72,6 +72,10 @@ export default function PayPage({ business, link }) {
   const [copied, setCopied] = React.useState(false);
   const [qr, setQr] = React.useState("");
   const [left, setLeft] = React.useState(null);
+  /* Crypto needs a pay session before there is anything to send to: the
+     deposit address is minted per session, so resolve cannot supply one. */
+  const [chain, setChain] = React.useState("");
+  const [stable, setStable] = React.useState(null);
 
   React.useEffect(() => {
     let off = false;
@@ -97,15 +101,35 @@ export default function PayPage({ business, link }) {
   const d = state.data || {};
   const cur = String(d.currency || "").toUpperCase();
   const accepts = Array.isArray(d.accepts) ? d.accepts : [];
-  /* `accepts` is built from the merchant's toggles and ignores the link's
-     currency, so it lists methods /pay then refuses. Only offer what can
-     actually settle for this link. */
-  const canMpesa = accepts.indexOf("mpesa") >= 0 && cur === "KES";
-  const canCrypto = (accepts.indexOf("usdc_evm") >= 0 || accepts.indexOf("stable_usdc") >= 0) && cur === "USDC";
+  /* `accepts` is authoritative: the aggregator now folds in the link currency
+     and merchant readiness, and checkout converts between KES and USDC, so a
+     KES link is payable in crypto and vice versa. Do not re-filter on currency
+     here — that would hide a method the backend can actually settle. */
+  const canMpesa = accepts.indexOf("mpesa") >= 0;
+  const canCrypto = accepts.indexOf("usdc_evm") >= 0 || accepts.indexOf("stable_usdc") >= 0;
   const tabs = [canCrypto ? "crypto" : null, canMpesa ? "mpesa" : null].filter(Boolean);
+  /* Per-method converted amount, when the link is priced in the other currency. */
+  const priceFor = (method) => ((d.pricing || {}).methods || {})[method] || null;
   const active = tab && tabs.indexOf(tab) >= 0 ? tab : tabs[0];
+  /* What the customer actually sends on the selected rail. Equals the sticker
+     price unless the link is priced in the other currency. */
+  const activePrice = priceFor(active === "mpesa" ? "mpesa" : "usdc_evm");
+  const charge =
+    activePrice && activePrice.converted
+      ? {
+          amount: activePrice.charge_amount,
+          currency: activePrice.charge_currency,
+          rate: activePrice.rate,
+          converted: true,
+        }
+      : { amount: d.amount, currency: cur, rate: null, converted: false };
   const chains = (d.source_chains || []).map((c) => (typeof c === "string" ? c : c.chain)).filter(Boolean);
-  const depositAddress = d.deposit_address || (d.stable || {}).deposit_address || "";
+  /* Only a started session has an address. The exact figure to send is the
+     session's customer_total_usdc — it includes the CCTP bridge fee, so the
+     link amount alone would underpay. */
+  const depositAddress = (stable && stable.deposit_address) || "";
+  const sendExact = (stable && (stable.customer_total_usdc || stable.charge_amount)) || charge.amount;
+  const stableChain = (stable && stable.source_chain) || chain || chains[0] || "";
 
   /* Expiry countdown, when the link carries one. */
   React.useEffect(() => {
@@ -139,6 +163,30 @@ export default function PayPage({ business, link }) {
       const body = await res.json().catch(() => null);
       if (!res.ok) { setPayError((body && body.message) || "The payment could not be started."); return; }
       setDone((body && body.data) || {});
+    } catch (e) {
+      setPayError("Could not reach the payment service.");
+    } finally { setPaying(false); }
+  };
+
+  /* Mint the deposit address for the chosen chain. Until this runs there is no
+     address and no binding USDC total — the bridge fee is only known here. */
+  const startStable = async (pick) => {
+    const useChain = pick || chain || chains[0];
+    if (!useChain) { setPayError("Pick a network to pay from."); return; }
+    setPayError("");
+    setPaying(true);
+    try {
+      const res = await fetch(
+        BASE + "/public/merchants/" + encodeURIComponent(business) + "/l/" + encodeURIComponent(link) + "/pay",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ method: "stable_usdc", source_chain: useChain }),
+        },
+      );
+      const body = await res.json().catch(() => null);
+      if (!res.ok) { setPayError((body && body.message) || "Could not start the crypto payment."); return; }
+      setStable((body && body.data) || {});
     } catch (e) {
       setPayError("Could not reach the payment service.");
     } finally { setPaying(false); }
@@ -228,10 +276,17 @@ export default function PayPage({ business, link }) {
         <div style={{ marginTop: 6 }}>
           <Row label="You send">
             <strong style={{ fontSize: 27, fontFamily: MONO, letterSpacing: "-0.02em" }}>
-              {money(d.amount, cur)}
+              {money(charge.amount, charge.currency)}
             </strong>
-            <span style={{ fontSize: 13, color: C.muted, marginLeft: 6 }}>{cur}</span>
+            <span style={{ fontSize: 13, color: C.muted, marginLeft: 6 }}>{charge.currency}</span>
           </Row>
+          {charge.converted ? (
+            <Row label="Rate">
+              <span style={{ fontSize: 13, color: C.muted, fontFamily: MONO }}>
+                1 USDC ≈ {money(charge.rate, "KES")} KES
+              </span>
+            </Row>
+          ) : null}
           <Row label={(d.business_name || "Merchant") + " receives"}>
             <span style={{ fontSize: 14.5, fontFamily: MONO }}>{money(d.amount, cur)} {cur}</span>
           </Row>
@@ -293,9 +348,14 @@ export default function PayPage({ business, link }) {
                     <div style={{ width: 168, height: 168, borderRadius: 10, background: "#f3f1ec" }} />
                   )}
                   <p style={{ margin: 0, fontSize: 13, color: C.muted, textAlign: "center", lineHeight: 1.6 }}>
-                    Send exactly <strong style={{ color: C.ink, fontFamily: MONO }}>{money(d.amount, cur)}</strong> USDC
-                    {chains.length ? <> on <strong style={{ color: C.ink }}>{CHAIN_LABEL[chains[0]] || chains[0]}</strong></> : null} to
+                    Send exactly <strong style={{ color: C.ink, fontFamily: MONO }}>{sendExact}</strong> USDC
+                    {stableChain ? <> on <strong style={{ color: C.ink }}>{CHAIN_LABEL[stableChain] || stableChain}</strong></> : null} to
                   </p>
+                  {stable && stable.bridge_fee_usdc ? (
+                    <p style={{ margin: "-6px 0 0", fontSize: 11.5, color: C.faint, textAlign: "center" }}>
+                      Includes {stable.bridge_fee_usdc} USDC bridge fee
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     onClick={copy}
@@ -323,21 +383,50 @@ export default function PayPage({ business, link }) {
                   ) : null}
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-                  <p style={{ margin: 0, padding: "13px 15px", borderRadius: 12, background: C.warnBg, color: C.warn, fontSize: 13, fontWeight: 600, lineHeight: 1.55 }}>
-                    This link has no deposit address yet, so crypto payment cannot be completed.
-                  </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {chains.length ? (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 9, paddingTop: 4 }}>
-                      <span style={{ fontSize: 12, color: C.muted }}>Networks this merchant can receive on</span>
-                      <div style={{ display: "flex", gap: 9, flexWrap: "wrap", justifyContent: "center" }}>
-                        {chains.map((c) => (
-                          <img key={c} src={chainIcon(c)} alt={CHAIN_LABEL[c] || c} title={CHAIN_LABEL[c] || c}
-                               width="26" height="26" style={{ display: "block", borderRadius: 999 }} />
-                        ))}
+                    <>
+                      <span style={{ fontSize: 13, color: C.muted }}>Pay USDC from</span>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {chains.map((c) => {
+                          const on = (chain || chains[0]) === c;
+                          return (
+                            <button
+                              key={c} type="button" onClick={() => setChain(c)}
+                              aria-pressed={on}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 7, padding: "9px 12px",
+                                borderRadius: 11, cursor: "pointer", fontFamily: "inherit", fontSize: 13,
+                                border: "1px solid " + (on ? C.accent : C.line),
+                                background: on ? "#fbfaf8" : "#fff",
+                                color: C.ink, fontWeight: on ? 700 : 500,
+                              }}
+                            >
+                              <img src={chainIcon(c)} alt="" width="20" height="20" style={{ display: "block", borderRadius: 999 }} />
+                              {CHAIN_LABEL[c] || c}
+                            </button>
+                          );
+                        })}
                       </div>
-                    </div>
-                  ) : null}
+                      {payError ? (
+                        <p style={{ margin: 0, fontSize: 12.5, color: C.warn, fontWeight: 600 }}>{payError}</p>
+                      ) : null}
+                      <button
+                        type="button" onClick={() => startStable()} disabled={paying}
+                        style={{
+                          marginTop: 2, padding: "15px 18px", borderRadius: 999, border: 0,
+                          background: C.accent, color: "#fff", fontSize: 15, fontWeight: 700,
+                          fontFamily: "inherit", cursor: paying ? "default" : "pointer", opacity: paying ? 0.6 : 1,
+                        }}
+                      >
+                        {paying ? "Preparing…" : "Continue to deposit address →"}
+                      </button>
+                    </>
+                  ) : (
+                    <p style={{ margin: 0, padding: "13px 15px", borderRadius: 12, background: C.warnBg, color: C.warn, fontSize: 13, fontWeight: 600, lineHeight: 1.55 }}>
+                      No USDC network is enabled for this merchant yet.
+                    </p>
+                  )}
                 </div>
               )
             ) : (
@@ -379,7 +468,7 @@ export default function PayPage({ business, link }) {
                     display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                   }}
                 >
-                  {paying ? "Sending prompt…" : <>Pay {cur} {money(d.amount, cur)} <span aria-hidden="true">→</span></>}
+                  {paying ? "Sending prompt…" : <>Pay {charge.currency} {money(charge.amount, charge.currency)} <span aria-hidden="true">→</span></>}
                 </button>
               </div>
             )}
