@@ -86,6 +86,36 @@ const BrandMark = ({ id, size = 26 }) => {
   );
 };
 
+/* Keyframes cannot be expressed inline, and every waiting screen needs them. */
+const Motion = () => (
+  <style>{`
+    @keyframes ep-spin { to { transform: rotate(360deg); } }
+    @keyframes ep-pulse { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+  `}</style>
+);
+
+const Spinner = ({ size = 18, color = C.accent }) => (
+  <span
+    aria-hidden="true"
+    style={{
+      width: size, height: size, borderRadius: 999, flexShrink: 0,
+      border: Math.max(2, Math.round(size / 9)) + "px solid " + C.line,
+      borderTopColor: color, display: "inline-block",
+      animation: "ep-spin 0.8s linear infinite",
+    }}
+  />
+);
+
+/* Shown under every pending rail, so "we are watching for it" is visible
+   rather than implied by a static sentence. */
+const Waiting = ({ title, children }) => (
+  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 9, textAlign: "center" }}>
+    <Spinner size={22} />
+    <h2 style={{ fontSize: 15.5, margin: "2px 0 0", animation: "ep-pulse 2s ease-in-out infinite" }}>{title}</h2>
+    <p style={{ margin: 0, fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>{children}</p>
+  </div>
+);
+
 const Stages = ({ names, at }) => (
   <div style={{ display: "grid", gridTemplateColumns: "repeat(" + names.length + ", 1fr)", gap: 8 }}>
     {names.map((n, i) => (
@@ -335,9 +365,25 @@ export default function PayPage({ business, link }) {
 
   const reset = () => { setSession(null); setLiveStatus(""); setPayError(""); };
 
+  /* The held rate has to expire — a bridge fee quoted ten minutes ago is not
+     a price. Rather than silently going stale (or stranding the payer at
+     0:00), re-run the start for the same chain: fresh fee, fresh window. The
+     deposit address is per merchant+chain, so it does not move under anyone
+     who already copied it. */
+  const refreshQuote = async () => {
+    const chain = (session && session.source_chain) || (activeNet && activeNet.chain);
+    if (!chain) return;
+    setQuoting(true);
+    try {
+      const fresh = await startPay({ method: "stable_usdc", source_chain: chain });
+      if (fresh) setHeld(90);
+    } finally { setQuoting(false); }
+  };
+
   /* ---------------------------------------------------------- chrome */
   const shell = (children, below = true) => (
     <main style={{ minHeight: "100dvh", display: "grid", placeItems: "center", padding: "28px 16px", background: C.bg, fontFamily: SANS, color: C.ink }}>
+      <Motion />
       <div style={{ width: "min(412px, 100%)" }}>
         <div style={{ borderRadius: 16, overflow: "hidden", boxShadow: "0 20px 60px -28px rgba(20,26,46,0.35)", background: C.card }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", background: "#f2f3f8", borderBottom: "1px solid " + C.line }}>
@@ -534,12 +580,10 @@ export default function PayPage({ business, link }) {
               waiting ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                   <Stages names={["Request sent", "Approve on phone", "Confirmed"]} at={1} />
-                  <div style={{ textAlign: "center" }}>
-                    <h2 style={{ fontSize: 16, margin: "4px 0 6px" }}>Check your phone</h2>
-                    <p style={{ margin: 0, fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-                      Enter your PIN on the prompt to approve {money(head.amount, head.currency)} {head.currency} to {d.business_name}.
-                    </p>
-                  </div>
+                  <Waiting title="Check your phone">
+                    Enter your PIN on the prompt to approve{" "}
+                    {money(head.amount, head.currency)} {head.currency} to {d.business_name}.
+                  </Waiting>
                   <button type="button" onClick={reset}
                     style={{ padding: "11px 16px", borderRadius: 10, border: "1px solid " + C.line, background: "#fff", color: C.ink, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
                     Cancel payment
@@ -593,7 +637,7 @@ export default function PayPage({ business, link }) {
                   <button type="button" onClick={payMobile} disabled={paying}
                     style={{ padding: "14px 18px", borderRadius: 10, border: 0, background: C.accent, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: paying ? "default" : "pointer", opacity: paying ? 0.6 : 1 }}>
                     {paying
-                      ? "Sending prompt…"
+                      ? <><Spinner size={15} color="#fff" /> Sending prompt…</>
                       : "Pay with " + (BRAND[wallet] ? BRAND[wallet].name : "mobile money") +
                         (head.pending ? "" : " · " + head.currency + " " + money(head.amount, head.currency))}
                   </button>
@@ -611,13 +655,11 @@ export default function PayPage({ business, link }) {
                     <Field label="Account no." value={session.account_number} />
                     <Field label="Amount" value={money(session.charge_amount, session.charge_currency) + " " + session.charge_currency} />
                   </div>
-                  <div style={{ textAlign: "center" }}>
-                    <h2 style={{ fontSize: 15.5, margin: "2px 0 6px" }}>Waiting for your transfer</h2>
-                    <p style={{ margin: 0, fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-                      Send exactly {money(session.charge_amount, session.charge_currency)} {session.charge_currency} from
-                      M-Pesa or your banking app. A different amount will not match.
-                    </p>
-                  </div>
+                  <Waiting title="Waiting for your transfer">
+                    Send exactly {money(session.charge_amount, session.charge_currency)}{" "}
+                    {session.charge_currency} from M-Pesa or your banking app. A different
+                    amount will not match.
+                  </Waiting>
                   <button type="button" onClick={reset}
                     style={{ padding: "11px 16px", borderRadius: 10, border: "1px solid " + C.line, background: "#fff", color: C.ink, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
                     Cancel payment
@@ -649,7 +691,7 @@ export default function PayPage({ business, link }) {
                   ) : null}
                   <button type="button" onClick={() => startPay({ method: "paybill" })} disabled={paying}
                     style={{ padding: "14px 18px", borderRadius: 10, border: 0, background: C.accent, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: paying ? "default" : "pointer", opacity: paying ? 0.6 : 1 }}>
-                    {paying ? "Preparing…" : "Get transfer details · " + head.currency + " " + money(head.amount, head.currency)}
+                    {paying ? <><Spinner size={15} color="#fff" /> Preparing…</> : "Get transfer details · " + head.currency + " " + money(head.amount, head.currency)}
                   </button>
                 </div>
               )
@@ -660,25 +702,51 @@ export default function PayPage({ business, link }) {
               depositAddress ? (
                 <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "center" }}>
                   <Stages names={["Address ready", "Deposit seen", "Confirmed"]} at={1} />
-                  {qr ? (
-                    <img src={qr} alt="Deposit address QR code" width="156" height="156" style={{ display: "block", borderRadius: 10 }} />
-                  ) : <div style={{ width: 156, height: 156, borderRadius: 10, background: C.chip }} />}
-                  <Field label="Address" value={depositAddress} />
-                  {session.deposit_memo ? (
-                    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 7 }}>
-                      <Field label="Memo (required)" value={session.deposit_memo} />
-                      <p style={{ margin: 0, padding: "9px 11px", borderRadius: 9, background: C.warnBg, color: C.warn, fontSize: 11.5, fontWeight: 700, lineHeight: 1.5 }}>
-                        A Stellar payment without this memo cannot be matched and needs manual recovery.
-                      </p>
+                  <div style={{ width: "100%", padding: 14, borderRadius: 12, background: "#fbfcfe", border: "1px solid " + C.line, display: "flex", flexDirection: "column", alignItems: "center", gap: 11 }}>
+                    <span style={{ fontSize: 11, color: C.faint }}>Scan with your mobile wallet</span>
+                    {qr ? (
+                      <img src={qr} alt="Deposit address QR code" width="152" height="152" style={{ display: "block", borderRadius: 8, background: "#fff" }} />
+                    ) : <div style={{ width: 152, height: 152, borderRadius: 8, background: C.chip }} />}
+                    <Field label="Deposit address" value={depositAddress} />
+                    {session.deposit_memo ? <Field label="Memo (required)" value={session.deposit_memo} /> : null}
+                    {/* The three facts a payer must get right, stated plainly. */}
+                    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", fontSize: 12, color: C.muted }}>
+                        <span>Network</span>
+                        <strong style={{ color: C.ink, fontWeight: 700 }}>{activeNet ? activeNet.sub : session.source_chain}</strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", fontSize: 12, color: C.muted, borderTop: "1px dashed " + C.line }}>
+                        <span>Send exactly</span>
+                        <strong style={{ fontFamily: MONO, fontSize: 13.5, color: C.ink }}>
+                          {session.customer_total_usdc || session.charge_amount} USDC
+                        </strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", fontSize: 12, color: C.muted, borderTop: "1px dashed " + C.line }}>
+                        <span>{d.business_name} receives</span>
+                        <span style={{ fontFamily: MONO, color: C.ink }}>{money(d.amount, cur)} {cur}</span>
+                      </div>
                     </div>
-                  ) : null}
-                  <div style={{ textAlign: "center" }}>
-                    <h2 style={{ fontSize: 15.5, margin: "2px 0 6px" }}>Waiting for your deposit</h2>
-                    <p style={{ margin: 0, fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-                      Send {session.customer_total_usdc || session.charge_amount} USDC on{" "}
-                      {activeNet ? activeNet.sub : session.source_chain}. Do not use another network.
-                    </p>
                   </div>
+                  {session.deposit_memo ? (
+                    <p style={{ margin: 0, padding: "9px 11px", borderRadius: 9, background: C.warnBg, color: C.warn, fontSize: 11.5, fontWeight: 700, lineHeight: 1.5 }}>
+                      A Stellar payment without this memo cannot be matched and needs manual recovery.
+                    </p>
+                  ) : null}
+                  <Waiting title="Waiting for your deposit">
+                    Send exactly {session.customer_total_usdc || session.charge_amount} USDC on{" "}
+                    {activeNet ? activeNet.sub : session.source_chain}. Do not use another network.
+                  </Waiting>
+                  {held != null ? (
+                    <p style={{ margin: 0, fontSize: 11, color: held > 0 ? C.faint : C.warn, fontWeight: held > 0 ? 400 : 700 }}>
+                      {held > 0
+                        ? "Quote holds for " + Math.floor(held / 60) + ":" + String(held % 60).padStart(2, "0")
+                        : "Quote expired — refresh before sending"}
+                    </p>
+                  ) : null}
+                  <button type="button" onClick={refreshQuote} disabled={quoting}
+                    style={{ width: "100%", padding: "13px 16px", borderRadius: 10, border: 0, background: held === 0 ? C.accent : C.ink, color: "#fff", fontSize: 13.5, fontWeight: 700, fontFamily: "inherit", cursor: quoting ? "default" : "pointer", opacity: quoting ? 0.6 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    {quoting ? <><Spinner size={14} color="#fff" /> Refreshing…</> : "Refresh quote"}
+                  </button>
                   <button type="button" onClick={reset}
                     style={{ width: "100%", padding: "11px 16px", borderRadius: 10, border: "1px solid " + C.line, background: "#fff", color: C.ink, fontSize: 13, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
                     Cancel payment
@@ -753,7 +821,7 @@ export default function PayPage({ business, link }) {
                         onClick={() => startPay({ method: "stable_usdc", source_chain: (activeNet && activeNet.chain) || networks[0].chain })}
                         style={{ padding: "14px 18px", borderRadius: 10, border: 0, background: C.accent, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: paying ? "default" : "pointer", opacity: paying ? 0.6 : 1 }}>
                         {paying
-                          ? "Preparing…"
+                          ? <><Spinner size={15} color="#fff" /> Preparing…</>
                           : "Pay with USDC · " + ((stableQuote && stableQuote.customer_total_usdc) || (usdcPrice && usdcPrice.charge_amount) || "") + " USDC"}
                       </button>
                     </>
