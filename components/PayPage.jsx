@@ -141,6 +141,10 @@ export default function PayPage({ business, link }) {
   const [held, setHeld] = React.useState(null);
   const [providers, setProviders] = React.useState(null);
   const [providerErr, setProviderErr] = React.useState("");
+  /* Per-chain fee breakdown. The customer pays the CCTP bridge fee, so it has
+     to be visible before they commit, not first seen on the deposit screen. */
+  const [stableQuote, setStableQuote] = React.useState(null);
+  const [quoting, setQuoting] = React.useState(false);
 
   React.useEffect(() => {
     let off = false;
@@ -184,8 +188,17 @@ export default function PayPage({ business, link }) {
   const countryRow = (momoEntry.countries || []).find((c) => c.code === country) || null;
   const isNative = Boolean(countryRow && countryRow.native);
 
-  const tabs = catalog.map((m) => m.key);
-  /* The market decides which tab leads (Nigeria opens on Bank). */
+  /* A method only applies where it can collect. Bank is M-Pesa paybill, i.e.
+     Kenya — offering it to a Nigerian payer would hand them a Kenyan business
+     number they cannot pay into. Crypto carries no country list and is
+     global. The catalog already states each method's countries; honour it. */
+  const servesCountry = (m) => {
+    if (!Array.isArray(m.countries) || !m.countries.length) return true;
+    return m.countries.some((c) => c.code === country);
+  };
+  const usable = country ? catalog.filter(servesCountry) : catalog;
+  const tabs = usable.map((m) => m.key);
+  /* The market decides which tab leads (Nigeria opens on Bank where it can). */
   const defaultTab = tabs.indexOf(mk && mk.lead) >= 0 ? mk.lead : tabs[0];
   const active = tab && tabs.indexOf(tab) >= 0 ? tab : defaultTab;
 
@@ -199,13 +212,20 @@ export default function PayPage({ business, link }) {
   const localPrice =
     active === "bank_transfer" ? priceFor("paybill") : isNative ? priceFor("mpesa") : null;
 
-  /* Headline is the payer's own currency when we can state it; otherwise the
-     link price, with the local figure quoted at checkout. */
-  const head = localPrice
-    ? { amount: localPrice.charge_amount, currency: localPrice.charge_currency }
-    : active === "stablecoin" && usdcPrice
-      ? { amount: usdcPrice.charge_amount, currency: "USDC" }
-      : { amount: d.amount, currency: cur };
+  /* Headline is what THIS payer sends, in the currency they hold.
+     Crypto is USDC. Kenya's rails are priced in KES up front. Other markets
+     are quoted in local currency by the wallet provider when the prompt is
+     raised, so we show the USDC equivalent — a number that is actually true —
+     rather than the merchant's KES sticker, which a Nigerian payer would have
+     no way to act on. */
+  const head =
+    active === "stablecoin"
+      ? { amount: (stableQuote && stableQuote.customer_total_usdc) || (usdcPrice && usdcPrice.charge_amount) || d.amount, currency: "USDC" }
+      : localPrice
+        ? { amount: localPrice.charge_amount, currency: localPrice.charge_currency }
+        : usdcPrice
+          ? { amount: usdcPrice.charge_amount, currency: "USDC", pending: true }
+          : { amount: d.amount, currency: cur };
 
   /* Rate hold — the number must not move while the payer is deciding. */
   React.useEffect(() => {
@@ -243,6 +263,27 @@ export default function PayPage({ business, link }) {
     })();
     return () => { off = true; };
   }, [active, country, isNative]);
+
+  /* Quote the chosen chain so the bridge fee is on screen before the payer
+     commits. One call per selection — not seven at resolve. */
+  React.useEffect(() => {
+    if (active !== "stablecoin" || !activeNet || session) return;
+    let off = false;
+    setQuoting(true); setStableQuote(null);
+    (async () => {
+      try {
+        const res = await fetch(
+          BASE + "/public/merchants/" + encodeURIComponent(business) + "/l/" +
+          encodeURIComponent(link) + "/stable-quote?source_chain=" + encodeURIComponent(activeNet.chain),
+        );
+        const body = await res.json().catch(() => null);
+        if (off || !res.ok) return;
+        setStableQuote((body && body.data) || null);
+      } catch (e) { /* fall back to the resolve-time figure */ }
+      finally { if (!off) setQuoting(false); }
+    })();
+    return () => { off = true; };
+  }, [active, activeNet && activeNet.chain, session]);
 
   /* Sessions only advance when read, so without this nothing here ever learns
      a payment completed. Drives every rail to the same result screen. */
@@ -436,7 +477,10 @@ export default function PayPage({ business, link }) {
         </div>
         <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 7, fontSize: 11, color: C.muted }}>
           <span style={{ width: 6, height: 6, borderRadius: 999, background: held > 0 ? C.ok : C.faint, flexShrink: 0 }} />
-          {usdcPrice ? <span style={{ fontFamily: MONO }}>≈ {approxUsdc(usdcPrice.charge_amount)} USDC</span> : null}
+          {/* Redundant when the headline is already USDC. */}
+          {usdcPrice && head.currency !== "USDC" ? (
+            <span style={{ fontFamily: MONO }}>≈ {approxUsdc(usdcPrice.charge_amount)} USDC</span>
+          ) : null}
           {held != null ? (
             <span style={{ color: C.faint }}>
               · rate held {Math.floor(held / 60)}:{String(held % 60).padStart(2, "0")}
@@ -447,11 +491,12 @@ export default function PayPage({ business, link }) {
           <p style={{ margin: "6px 0 0", fontSize: 11.5, color: C.faint }}>
             ≈ {money(d.amount, cur)} {cur} to {d.business_name}
           </p>
-        ) : mk && mk.currency !== head.currency && active === "mobile_money" && !isNative ? (
-          /* Local-currency markets are quoted by the wallet provider when the
-             prompt is raised, so we cannot state the figure yet — say that
-             rather than show a number the payer will not recognise. */
-          <p style={{ margin: "6px 0 0", fontSize: 11.5, color: C.faint }}>
+        ) : null}
+        {head.pending && mk ? (
+          /* The wallet provider quotes the local figure when the prompt is
+             raised, so we cannot state it yet. Say so rather than show the
+             merchant's sticker currency, which this payer cannot act on. */
+          <p style={{ margin: "4px 0 0", fontSize: 11.5, color: C.faint }}>
             Charged in {mk.currency} at today’s rate — shown before you approve.
           </p>
         ) : null}
@@ -547,7 +592,10 @@ export default function PayPage({ business, link }) {
 
                   <button type="button" onClick={payMobile} disabled={paying}
                     style={{ padding: "14px 18px", borderRadius: 10, border: 0, background: C.accent, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: paying ? "default" : "pointer", opacity: paying ? 0.6 : 1 }}>
-                    {paying ? "Sending prompt…" : "Pay with " + (BRAND[wallet] ? BRAND[wallet].name : "mobile money") + " · " + head.currency + " " + money(head.amount, head.currency)}
+                    {paying
+                      ? "Sending prompt…"
+                      : "Pay with " + (BRAND[wallet] ? BRAND[wallet].name : "mobile money") +
+                        (head.pending ? "" : " · " + head.currency + " " + money(head.amount, head.currency))}
                   </button>
                 </div>
               )
@@ -661,12 +709,38 @@ export default function PayPage({ business, link }) {
                           );
                         })}
                       </div>
-                      {usdcPrice ? (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 12px", borderRadius: 10, background: "#fbfcfe", border: "1px solid " + C.line }}>
-                          <span style={{ fontSize: 12, color: C.muted }}>You send</span>
-                          <strong style={{ fontSize: 15, fontFamily: MONO }}>{usdcPrice.charge_amount} USDC</strong>
-                        </div>
-                      ) : null}
+                      {/* Fee breakdown. The bridge fee is charged to the
+                          customer, so every line of it is shown. */}
+                      <div style={{ padding: "4px 12px 11px", borderRadius: 10, background: "#fbfcfe", border: "1px solid " + C.line }}>
+                        {stableQuote ? (
+                          <>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 12, color: C.muted }}>
+                              <span>Merchant receives</span>
+                              <span style={{ fontFamily: MONO, color: C.ink }}>{stableQuote.amount_usdc} USDC</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 12, color: C.muted, borderBottom: "1px dashed " + C.line }}>
+                              <span>
+                                Network fee
+                                {Number(stableQuote.bridge_fee_usdc) === 0 ? (
+                                  <span style={{ color: C.ok, fontWeight: 700 }}> · none on {activeNet.sub}</span>
+                                ) : null}
+                              </span>
+                              <span style={{ fontFamily: MONO, color: C.ink }}>{stableQuote.bridge_fee_usdc} USDC</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10 }}>
+                              <span style={{ fontSize: 12.5, fontWeight: 700 }}>You send</span>
+                              <strong style={{ fontSize: 15, fontFamily: MONO }}>{stableQuote.customer_total_usdc} USDC</strong>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 11 }}>
+                            <span style={{ fontSize: 12, color: C.muted }}>You send</span>
+                            <strong style={{ fontSize: 15, fontFamily: MONO, color: quoting ? C.faint : C.ink }}>
+                              {quoting ? "quoting…" : (usdcPrice ? usdcPrice.charge_amount + " USDC" : "—")}
+                            </strong>
+                          </div>
+                        )}
+                      </div>
                       {activeNet && activeNet.chain === "stellar" ? (
                         <p style={{ margin: 0, fontSize: 11.5, color: C.muted, lineHeight: 1.5 }}>
                           Stellar settles directly — no bridge fee. You will need to attach a memo.
@@ -678,7 +752,9 @@ export default function PayPage({ business, link }) {
                       <button type="button" disabled={paying}
                         onClick={() => startPay({ method: "stable_usdc", source_chain: (activeNet && activeNet.chain) || networks[0].chain })}
                         style={{ padding: "14px 18px", borderRadius: 10, border: 0, background: C.accent, color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: paying ? "default" : "pointer", opacity: paying ? 0.6 : 1 }}>
-                        {paying ? "Preparing…" : "Pay with USDC · " + head.currency + " " + money(head.amount, head.currency)}
+                        {paying
+                          ? "Preparing…"
+                          : "Pay with USDC · " + ((stableQuote && stableQuote.customer_total_usdc) || (usdcPrice && usdcPrice.charge_amount) || "") + " USDC"}
                       </button>
                     </>
                   ) : (
