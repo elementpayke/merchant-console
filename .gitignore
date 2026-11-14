@@ -45,3 +45,6 @@ next-env.d.ts
 
 # SDP sample destination secrets (never commit)
 **/*.SECRETS.txt
+
+# Intermediate design-export artifacts (regenerate with scripts/extract-design.mjs)
+.design/
