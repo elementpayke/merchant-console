@@ -3,3 +3,5 @@
 .hv2:hover { background: var(--surface-soft) !important; }
 .hv3:hover { border-color: var(--indigo) !important; background: var(--indigo-tint) !important; }
 .hv4:hover { border-color: var(--indigo) !important; }
+.hv5:hover { box-shadow: 0 8px 22px -14px rgba(20,24,28,0.3) !important; }
+.hv6:hover { background: var(--indigo-tint) !important; }

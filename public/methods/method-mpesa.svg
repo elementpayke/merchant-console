@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="M-Pesa">
+  <rect width="40" height="40" rx="9" fill="#00A14B"/>
+  <path d="M8.6 27V13.4h3.5l3.6 8.3 3.6-8.3h3.5V27h-2.9v-8.6L16.6 27h-2l-3.3-8.6V27z" fill="#fff"/>
+  <rect x="24.4" y="19.4" width="7.2" height="2.4" rx="1.2" fill="#fff"/>
+  <path d="M26 27V13.4h4.6c2.6 0 4.3 1.6 4.3 4s-1.7 4-4.3 4H29V27zm3-8.1h1.4c1 0 1.6-.5 1.6-1.4s-.6-1.4-1.6-1.4H29z" fill="#E2231A" opacity=".95"/>
+</svg>
