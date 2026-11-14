@@ -16,10 +16,16 @@ const PROPS = {
   showQuickstart: true,
 };
 
-Logic.prototype.render = function () {
-  return <Markup v={this.renderVals()} />;
-};
+/* Subclass rather than patching Logic.prototype.render: on a hot update Turbopack
+   can re-evaluate lib/logic.js (yielding a fresh class) without re-running this
+   module, leaving the new class with no render — which React reports as
+   "No `render` method found on the Component instance". */
+class ConsoleView extends Logic {
+  render() {
+    return <Markup v={this.renderVals()} />;
+  }
+}
 
 export default function Console(props) {
-  return <Logic {...PROPS} {...props} />;
+  return <ConsoleView {...PROPS} {...props} />;
 }
